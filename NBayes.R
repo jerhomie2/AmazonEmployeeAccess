@@ -2,8 +2,8 @@ library(tidyverse)
 library(tidymodels)
 library(vroom)
 library(embed)
-library(kknn)
 library(doParallel)
+library(discrim)
 
 num_cores <- detectCores()
 cl <- makePSOCKcluster(num_cores)
@@ -24,23 +24,24 @@ prepped_recipe <- prep(amazon_recipe)
 baked_train <- bake(prepped_recipe, new_data=train) 
 baked_test <- bake(prepped_recipe, new_data=test)
 
-knn_mod <- nearest_neighbor(neighbors=tune()) %>% # set or tune
-  set_mode("classification") %>%
-  set_engine("kknn")
+nb_model <- naive_Bayes(Laplace=tune(), smoothness=tune()) %>%
+set_mode("classification") %>%
+set_engine("naivebayes")
 
-knn_wf <- workflow() %>%
+nb_wf <- workflow() %>%
   add_recipe(amazon_recipe) %>%
-  add_model(knn_mod)
+  add_model(nb_model)
 
 ## Grid of values to tune over
-tuning_grid <- grid_regular(neighbors(),
+tuning_grid <- grid_regular(Laplace(),
+                            smoothness(),
                             levels = 5) ## L^2 total tuning possibilities
 
 ## Split data for CV
 folds <- vfold_cv(train, v = 5, repeats=1)
 
 ## Run the CV
-CV_results <- knn_wf %>%
+CV_results <- nb_wf %>%
   tune_grid(resamples=folds,
             grid=tuning_grid,
             metrics=metric_set(roc_auc)) #, f_meas, sens, recall, spec, precision, accuracy)) #Or leave metrics NULL
@@ -50,7 +51,7 @@ bestTune <- CV_results %>%
   select_best(metric = "roc_auc")
 
 ## Finalize the Workflow & fit it
-final_wf <- knn_wf %>%
+final_wf <- nb_wf %>%
   finalize_workflow(bestTune) %>%
   fit(data=train)
 
@@ -64,6 +65,6 @@ kaggle_submission <- amazon_predictions %>%
   mutate(id = row_number())
 
 ## Write out the file
-vroom_write(x=kaggle_submission, file="./KNNpreds.csv", delim=",")
+vroom_write(x=kaggle_submission, file="./NBayespreds.csv", delim=",")
 
 stopCluster(cl)
